@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 3 of the License, or
+#  (at your option) any later version.
+#  
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#  
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+#  MA 02110-1301, USA.
+#  
+
+import discord
+import time
+import sleekxmpp
+import logging
+import asyncio
+import re
+import time
+
+###############################################################
+#XMPP ZONE: handling XMPP connections, messages and commands
+###############################################################
+
+class MainXBot(sleekxmpp.ClientXMPP):
+
+    def __init__(self, jid, password, room, nick):
+        sleekxmpp.ClientXMPP.__init__(self, jid, password)
+
+        self.room = room
+        self.nick = nick
+
+        self.add_event_handler("session_start", self.start)
+        self.add_event_handler("groupchat_message", self.muc_message)
+
+    def start(self, event):
+        logging.info("Main XMPP session started")
+        self.get_roster()
+        self.send_presence()
+        self.plugin['xep_0045'].joinMUC(self.room, self.nick, wait=True)
+        logging.info("Conference %s joined" % self.room)
+        self.send_message(mto=self.room, mbody=greetmsg, mtype='groupchat')
+        return
+        
+    def muc_message(self, msg):
+        if msg['mucnick'] != self.nick and msg['mucnick'] not in memberdict:
+            if str(msg['body']).startswith(self.nick + ":"):
+                output = handle_disc_commands(re.sub(re.escape(self.nick) + r": ", "" , str(msg['body'])))
+                self.send_message(mto=self.room, mbody=str(output), mtype='groupchat')
+                return
+            resultmsg = handle_xmpp_msg(str(msg['body']))
+            disclient.loop.create_task(disclient.send_message(disclient.get_channel(channelnumber), msg['mucnick'] + ": " + resultmsg)) # The thing I'm probably going to hell for
+
+class XConnection(sleekxmpp.ClientXMPP):
+    
+    def __init__(self, jid, password, room, nick):
+        sleekxmpp.ClientXMPP.__init__(self, jid, password)
+
+        self.room = room
+        self.nick = nick
+
+        self.add_event_handler("session_start", self.start)
+    
+    def start(self, event):
+        logging.info("Worker connection for %s started" % self.nick)
+        self.get_roster()
+        self.send_presence()
+        self.plugin['xep_0045'].joinMUC(self.room, self.nick, wait=True)
+        logging.info("Conference %s joined by %s" % (self.room, self.nick))
+        return
+
+def handle_xmpp_msg(messagetext):
+    # Making XMPP ping strings meaningful for Discord
+    flipids = {mark_name(name, prefix = connprefix, suffix = connsuffix):userid for userid,name in memberids.items()} # Sorry, I had to
+    resulttext = messagetext
+    for name, userid in flipids.items():
+        resulttext = re.sub(re.escape(name), "<@%s>" % userid, resulttext)
+    return resulttext
+
+def add_xmpp_connection(jid, jidpass, muc, conname):
+    if conname not in memberdict:
+        memberdict[conname] = XConnection(jid, jidpass, muc, conname)
+        memberdict[conname].register_plugin('xep_0045')
+        memberdict[conname].register_plugin('xep_0030')
+        memberdict[conname].register_plugin('xep_0199')
+        
+        if memberdict[conname].connect():
+            memberdict[conname].process()
+
+def rm_xmpp_connection(conname):
+    memberdict[conname].disconnect()
+    memberdict.pop(conname, None)
+
+def handle_xmpp_commands(command): # Yeah, i know, there's only one
+    if command == "uptime":
+        return get_uptime()
+
+###############################################################
+#DISCORD ZONE: handling Discord connection, messages and commands
+###############################################################
+
+disclient = discord.Client()
+
+@disclient.event
+async def on_message(message):
+    if message.author == disclient.user:
+        return
+    
+    if message.channel == disclient.get_channel(channelnumber):
+        if message.content.startswith("<@%s>" % disclient.user.id):
+            output = handle_disc_commands(re.sub(r"<@(.*?)> ", "" , message.content))
+            disclient.loop.create_task(disclient.send_message(disclient.get_channel(channelnumber), output))
+            return
+        resultmsg = []
+        for attachment in message.attachments:
+            resultmsg.append(attachment['url'])
+        resultmsg.append(handle_discord_msg(message.content))
+        memberdict[mark_name(message.author.name, prefix = connprefix, suffix = connsuffix)].send_message(mto=bot.room, mbody=" ".join(resultmsg), mtype='groupchat')
+
+@disclient.event
+async def on_ready():
+    logging.info("Logged in as %s (%s)" % (disclient.user.name, disclient.user.id))
+    await disclient.send_message(disclient.get_channel(channelnumber), greetmsg)
+    for member in disclient.get_all_members():
+        if member.name != disclient.user.name:
+            if str(member.status) == "online":
+                add_xmpp_connection(myjid, myjidpass, mymuc, mark_name(member.name, prefix = connprefix, suffix = connsuffix))
+        memberids[member.id] = member.name    
+
+@disclient.event
+async def on_member_update(member, memberafter):
+    logging.info("%s updated their status to %s" % (memberafter.name, str(memberafter.status)))
+    markedname = mark_name(memberafter.name, prefix = connprefix, suffix = connsuffix)
+    if str(memberafter.status) == "offline":
+        rm_xmpp_connection(markedname)
+    else:
+        add_xmpp_connection(myjid, myjidpass, mymuc, markedname)
+
+@disclient.event
+async def on_member_remove(member):
+    rm_xmpp_connection(mark_name(member.name, prefix = connprefix, suffix = connsuffix))
+    memberids.pop(member.id, None)
+
+@disclient.event
+async def on_member_join(member):
+    if str(member.status) == "online":
+        add_xmpp_connection(myjid, myjidpass, mymuc, mark_name(member.name, prefix = connprefix, suffix = connsuffix))
+    memberids[member.id] = member.name
+
+def handle_discord_msg(messagetext):
+    # Handling custom emotes and attachments
+    discordemocdn = "https://cdn.discordapp.com/emojis/"
+    discordemofmt = ".png"
+    resulttext = re.sub(r"<:(.*?):(.*?)>", discordemocdn + r"\2" + discordemofmt, messagetext)
+    # Making Discord ping strings readable
+    resulttext = re.sub(r"<@(.*?)>", lambda m: "@" + memberids[m.group()[2:-1]] , resulttext) # Oh, my god, what the fuck.
+    resulttext = re.sub(r"@(everyone)", unwrap_everyone_dict(bot.plugin["xep_0045"].getRoster(mymuc)), resulttext)
+    return resulttext
+    
+def handle_disc_commands(command):
+    if command == "who":
+        return unwrap_everyone_dict(bot.plugin["xep_0045"].getRoster(mymuc))
+    if command == "uptime":
+        return get_uptime()
+
+###############################################################
+#LITTLE TWEAKS ZONE: small utilities that are nice to have
+###############################################################
+
+def mark_name(name, prefix="", suffix=""):
+    return prefix+name+suffix
+    
+def unwrap_everyone_dict(everyone):
+    result = []
+    for one in everyone:
+        if one not in memberdict:
+            if one != mainbotname:
+                result.append(one)
+    return ", ".join(result)
+
+
+def get_uptime():
+    """
+    Returns the number of seconds since the program started.
+    """
+    return time.time() - startTime
+
+###############################################################
+#MAIN ZONE: parsing the configuration and running the loops
+###############################################################
+
+if __name__ == '__main__':
+    import argparse
+    import configparser
+    
+    startTime = time.time()
+    version="0.1"
+    
+    logging.warning("Dissonance version %s" % version)
+    
+    parser = argparse.ArgumentParser(prog='dissonance', description='Dissonance: a Discord <> XMPP conference transport done right')
+    parser.add_argument("configfile", help="an INI configuration file with login information and settings")
+    args = parser.parse_args()
+    
+    config = configparser.SafeConfigParser()
+    config.readfp(open(args.configfile))
+    
+    myjid = config.get("XMPP", "jid")
+    myjidpass = config.get("XMPP", "jidpw")
+    mymuc = config.get("XMPP", "conference")
+
+    mydisctoken = config.get("Discord", "token")
+    channelnumber = config.get("Discord", "channel")
+    
+    mainbotname = config.get("UI", "name")
+    connprefix = config.get("UI", "connectionprefix")
+    connsuffix = config.get("UI", "connectionsuffix")
+    greetmsg = config.get("UI", "greetmsg")
+    logging.basicConfig(level=int(config.get("UI", "loglevel")), format='%(levelname)-8s %(message)s')
+
+    memberdict = {}
+    memberids = {} # I hate this oh so much
+    bot = MainXBot(myjid, myjidpass, mymuc, mainbotname)
+    
+    bot.register_plugin('xep_0045')
+    bot.register_plugin('xep_0030')
+    bot.register_plugin('xep_0199')
+    if bot.connect():
+        bot.process()
+        logging.info("Logged into XMPP as %s" % myjid)
+    else:
+        logging.error("Unable to connect")
+
+    disclient.run(mydisctoken)
