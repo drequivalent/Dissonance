@@ -2,7 +2,7 @@
 
 XMPP ↔ Discord conference transport done right.
 
-Dissonɐnce is a conference transport bot between XMPP (or, Jabber) multi-user conference and Discord channel. Its mission is to translate some of Discord functionality into XMPP conferernce, and act as a transparent relay between the two conferencing protocols.
+Dissonɐnce is a conference transport bot between XMPP (or, Jabber) multi-user conference and Discord channel. Its purpose is to translate some of Discord functionality into XMPP conferernce, and act as a transparent relay between the two conferencing protocols.
 
 ## Features:
  - an individual connection for every Discord channel member (as if channel members are logged into XMPP conference)
