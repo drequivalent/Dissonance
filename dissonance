@@ -21,7 +21,6 @@ import sleekxmpp
 import logging
 import asyncio
 import re
-import time
 
 ###############################################################
 #XMPP ZONE: handling XMPP connections, messages and commands
