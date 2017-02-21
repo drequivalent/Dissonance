@@ -8,9 +8,17 @@ Dissonɐnce is a conference transport bot between XMPP (or, Jabber) multi-user c
  - an individual connection for every Discord channel member (as if channel members are logged into XMPP conference)
  - translation of mentions (a.k.a pings) from XMPP conference to Discord format
  - translation of mentions (a.k.a pings) from Discord format to XMPP conference
- - discord's @everyone mention pings all non-Dissonɐnce-managed XMPP conference members
+ - mentioning @everyone on Discord pings all non-Dissonɐnce-managed XMPP conference members
  - translation of links to attached files and custom emoticons from Discord to XMPP conference
  - some limited command functionality
+
+## Requirements:
+The program is written for Python 3, make sure it is installed in your system.
+The program also requires SleekXMPP and Discord.py libraries to be installed. They can be installed using following commands:
+```
+python3 -m pip install -U discord.py
+python3 -m pip install -U sleekxmpp
+```
 
 ## Usage
 ```
