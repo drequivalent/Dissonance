@@ -21,6 +21,7 @@ import sleekxmpp
 import logging
 import asyncio
 import re
+import time
 
 ###############################################################
 #XMPP ZONE: handling XMPP connections, messages and commands
@@ -43,7 +44,10 @@ class MainXBot(sleekxmpp.ClientXMPP):
         self.send_presence()
         self.plugin['xep_0045'].joinMUC(self.room, self.nick, wait=True)
         logging.info("Conference %s joined" % self.room)
-        self.send_message(mto=self.room, mbody=greetmsg, mtype='groupchat')
+        try:
+            self.send_message(mto=self.room, mbody=greetmsg, mtype='groupchat')
+        except NameError:
+            pass
         return
         
     def muc_message(self, msg):
@@ -124,7 +128,10 @@ async def on_message(message):
 @disclient.event
 async def on_ready():
     logging.info("Logged in as %s (%s)" % (disclient.user.name, disclient.user.id))
-    await disclient.send_message(disclient.get_channel(channelnumber), greetmsg)
+    try:
+        await disclient.send_message(disclient.get_channel(channelnumber), greetmsg)
+    except NameError:
+        pass
     for member in disclient.get_all_members():
         if member.name != disclient.user.name:
             if str(member.status) == "online":
@@ -219,7 +226,8 @@ if __name__ == '__main__':
     mainbotname = config.get("UI", "name")
     connprefix = config.get("UI", "connectionprefix")
     connsuffix = config.get("UI", "connectionsuffix")
-    greetmsg = config.get("UI", "greetmsg")
+    if config.has_option("UI", "greetmsg"):
+        greetmsg = config.get("UI", "greetmsg")
     logging.basicConfig(level=int(config.get("UI", "loglevel")), format='%(levelname)-8s %(message)s')
 
     memberdict = {}
