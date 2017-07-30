@@ -6,6 +6,7 @@ Dissonɐnce is a conference transport bot between XMPP (or, Jabber) multi-user c
 
 ## Features:
  - an individual connection for every Discord channel member (as if channel members are logged into XMPP conference)
+ - support for multiple Discord channels mapped into different XMPP conferences
  - translation of mentions (a.k.a pings) from XMPP conference to Discord format
  - translation of mentions (a.k.a pings) from Discord format to XMPP conference
  - mentioning @everyone on Discord pings all non-Dissonɐnce-managed XMPP conference members
@@ -43,10 +44,12 @@ conference = nameofthe@conference.jabber.tld
 
 [Discord]
 token = your Discord bot OAuth token (given by Discord in "Add Bot" dialog)
-channel = number of the channel you want Dissonɐnce to interact with
+
+[ChannelMap]
+channel ID you want Dissonɐnce to interact with=nameofthefirst@conference.jabber.tld
+another channel ID you want Dissonɐnce to interact with=nameofthesecond@conference.jabber.tld
 
 [UI]
-
 name = Dissonɐnce
 greetmsg = Dissonɐnce: XMPP ↔ Discord conference transport done right.
 connectionprefix = [
