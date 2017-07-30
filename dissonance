@@ -29,10 +29,10 @@ import time
 
 class MainXBot(sleekxmpp.ClientXMPP):
 
-    def __init__(self, jid, password, room, nick):
+    def __init__(self, jid, password, channel_map, nick):
         sleekxmpp.ClientXMPP.__init__(self, jid, password)
 
-        self.room = room
+        self.channel_map = channel_map
         self.nick = nick
 
         self.add_event_handler("session_start", self.start)
@@ -42,29 +42,33 @@ class MainXBot(sleekxmpp.ClientXMPP):
         logging.info("Main XMPP session started")
         self.get_roster()
         self.send_presence()
-        self.plugin['xep_0045'].joinMUC(self.room, self.nick, wait=True)
-        logging.info("Conference %s joined" % self.room)
-        try:
-            self.send_message(mto=self.room, mbody=greetmsg, mtype='groupchat')
-        except NameError:
-            pass
+        for room in self.channel_map.values():
+            self.plugin['xep_0045'].joinMUC(room, self.nick, wait=True)
+            logging.info("Conference %s joined" % room)
+            try:
+                self.send_message(mto=room, mbody=greetmsg, mtype='groupchat')
+            except NameError:
+                pass
         return
         
     def muc_message(self, msg):
+        room = msg['mucroom']
         if msg['mucnick'] != self.nick and msg['mucnick'] not in memberdict:
             if str(msg['body']).startswith(self.nick + ":"):
                 output = handle_disc_commands(re.sub(re.escape(self.nick) + r": ", "" , str(msg['body'])))
-                self.send_message(mto=self.room, mbody=str(output), mtype='groupchat')
+                self.send_message(mto=room, mbody=str(output), mtype='groupchat')
                 return
             resultmsg = handle_xmpp_msg(str(msg['body']))
-            disclient.loop.create_task(disclient.send_message(disclient.get_channel(channelnumber), msg['mucnick'] + ": " + resultmsg)) # The thing I'm probably going to hell for
+            for channel in channel_map.keys():
+                if channel_map[channel] == room:
+                    disclient.loop.create_task(disclient.send_message(disclient.get_channel(channel), msg['mucnick'] + ": " + resultmsg)) # The thing I'm probably going to hell for
 
 class XConnection(sleekxmpp.ClientXMPP):
     
-    def __init__(self, jid, password, room, nick):
+    def __init__(self, jid, password, rooms, nick):
         sleekxmpp.ClientXMPP.__init__(self, jid, password)
 
-        self.room = room
+        self.rooms = rooms
         self.nick = nick
 
         self.add_event_handler("session_start", self.start)
@@ -73,8 +77,9 @@ class XConnection(sleekxmpp.ClientXMPP):
         logging.info("Worker connection for %s started" % self.nick)
         self.get_roster()
         self.send_presence()
-        self.plugin['xep_0045'].joinMUC(self.room, self.nick, wait=True)
-        logging.info("Conference %s joined by %s" % (self.room, self.nick))
+        for room in self.rooms:
+            self.plugin['xep_0045'].joinMUC(room, self.nick, wait=True)
+            logging.info("Conference %s joined by %s" % (room, self.nick))
         return
 
 def handle_xmpp_msg(messagetext):
@@ -85,9 +90,9 @@ def handle_xmpp_msg(messagetext):
         resulttext = re.sub(re.escape(name), "<@%s>" % userid, resulttext)
     return resulttext
 
-def add_xmpp_connection(jid, jidpass, muc, conname):
+def add_xmpp_connection(jid, jidpass, rooms, conname):
     if conname not in memberdict:
-        memberdict[conname] = XConnection(jid, jidpass, muc, conname)
+        memberdict[conname] = XConnection(jid, jidpass, rooms, conname)
         memberdict[conname].register_plugin('xep_0045')
         memberdict[conname].register_plugin('xep_0030')
         memberdict[conname].register_plugin('xep_0199')
@@ -114,28 +119,29 @@ async def on_message(message):
     if message.author == disclient.user:
         return
     
-    if message.channel == disclient.get_channel(channelnumber):
+    if message.channel.id in channel_map.keys():
         if message.content.startswith("<@%s>" % disclient.user.id):
             output = handle_disc_commands(re.sub(r"<@(.*?)> ", "" , message.content))
-            disclient.loop.create_task(disclient.send_message(disclient.get_channel(channelnumber), output))
+            disclient.loop.create_task(disclient.send_message(message.channel, output))
             return
         resultmsg = []
         for attachment in message.attachments:
             resultmsg.append(attachment['url'])
         resultmsg.append(handle_discord_msg(message.content))
-        memberdict[mark_name(message.author.name, prefix = connprefix, suffix = connsuffix)].send_message(mto=bot.room, mbody=" ".join(resultmsg), mtype='groupchat')
+        memberdict[mark_name(message.author.name, prefix = connprefix, suffix = connsuffix)].send_message(mto=channel_map[message.channel.id], mbody=" ".join(resultmsg), mtype='groupchat')
 
 @disclient.event
 async def on_ready():
     logging.info("Logged in as %s (%s)" % (disclient.user.name, disclient.user.id))
     try:
-        await disclient.send_message(disclient.get_channel(channelnumber), greetmsg)
+        for channel in channel_map.keys():
+            await disclient.send_message(disclient.get_channel(channel), greetmsg)
     except NameError:
         pass
     for member in disclient.get_all_members():
         if member.name != disclient.user.name:
             if str(member.status) == "online":
-                add_xmpp_connection(myjid, myjidpass, mymuc, mark_name(member.name, prefix = connprefix, suffix = connsuffix))
+                add_xmpp_connection(myjid, myjidpass, channel_map.values(), mark_name(member.name, prefix = connprefix, suffix = connsuffix))
         memberids[member.id] = member.name    
 
 @disclient.event
@@ -145,7 +151,7 @@ async def on_member_update(member, memberafter):
     if str(memberafter.status) == "offline":
         rm_xmpp_connection(markedname)
     else:
-        add_xmpp_connection(myjid, myjidpass, mymuc, markedname)
+        add_xmpp_connection(myjid, myjidpass, channel_map.values(), markedname)
 
 @disclient.event
 async def on_member_remove(member):
@@ -155,7 +161,7 @@ async def on_member_remove(member):
 @disclient.event
 async def on_member_join(member):
     if str(member.status) == "online":
-        add_xmpp_connection(myjid, myjidpass, mymuc, mark_name(member.name, prefix = connprefix, suffix = connsuffix))
+        add_xmpp_connection(myjid, myjidpass, channel_map.values(), mark_name(member.name, prefix = connprefix, suffix = connsuffix))
     memberids[member.id] = member.name
 
 def handle_discord_msg(messagetext):
@@ -165,12 +171,12 @@ def handle_discord_msg(messagetext):
     resulttext = re.sub(r"<:(.*?):(.*?)>", discordemocdn + r"\2" + discordemofmt, messagetext)
     # Making Discord ping strings readable
     resulttext = re.sub(r"<@(.*?)>", lambda m: "@" + memberids[m.group()[2:-1]] , resulttext) # Oh, my god, what the fuck.
-    resulttext = re.sub(r"@(everyone)", unwrap_everyone_dict(bot.plugin["xep_0045"].getRoster(mymuc)), resulttext)
+    resulttext = re.sub(r"@(everyone)", unwrap_everyone_dict(bot.plugin["xep_0045"].getRoster(list(channel_map.values())[0])), resulttext)
     return resulttext
     
 def handle_disc_commands(command):
     if command == "who":
-        return unwrap_everyone_dict(bot.plugin["xep_0045"].getRoster(mymuc))
+        return unwrap_everyone_dict(bot.plugin["xep_0045"].getRoster(channel_map.values[0]))
     if command == "uptime":
         return get_uptime()
 
@@ -218,11 +224,13 @@ if __name__ == '__main__':
     
     myjid = config.get("XMPP", "jid")
     myjidpass = config.get("XMPP", "jidpw")
-    mymuc = config.get("XMPP", "conference")
+    #mymuc = config.get("XMPP", "conference")
 
     mydisctoken = config.get("Discord", "token")
-    channelnumber = config.get("Discord", "channel")
-    
+    #channelnumber = config.get("Discord", "channel")
+
+    channel_map = dict(config["ChannelMap"])
+
     mainbotname = config.get("UI", "name")
     connprefix = config.get("UI", "connectionprefix")
     connsuffix = config.get("UI", "connectionsuffix")
@@ -232,7 +240,7 @@ if __name__ == '__main__':
 
     memberdict = {}
     memberids = {} # I hate this oh so much
-    bot = MainXBot(myjid, myjidpass, mymuc, mainbotname)
+    bot = MainXBot(myjid, myjidpass, channel_map, mainbotname)
     
     bot.register_plugin('xep_0045')
     bot.register_plugin('xep_0030')
