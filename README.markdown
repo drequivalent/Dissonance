@@ -39,7 +39,6 @@ optional arguments:
 [XMPP]
 jid = dissonance@bot.jid
 jidpw = passwordtojid
-conference = nameofthe@conference.jabber.tld
 
 
 [Discord]
