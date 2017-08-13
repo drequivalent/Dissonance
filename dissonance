@@ -23,6 +23,8 @@ import asyncio
 import re
 import time
 
+from pprint import pprint
+
 ###############################################################
 #XMPP ZONE: handling XMPP connections, messages and commands
 ###############################################################
@@ -50,7 +52,7 @@ class MainXBot(sleekxmpp.ClientXMPP):
             except NameError:
                 pass
         return
-        
+
     def muc_message(self, msg):
         room = msg['mucroom']
         if msg['mucnick'] != self.nick and msg['mucnick'] not in memberdict:
@@ -58,10 +60,19 @@ class MainXBot(sleekxmpp.ClientXMPP):
                 output = handle_disc_commands(re.sub(re.escape(self.nick) + r": ", "" , str(msg['body'])))
                 self.send_message(mto=room, mbody=str(output), mtype='groupchat')
                 return
-            resultmsg = handle_xmpp_msg(str(msg['body']))
+            msgbody = handle_xmpp_msg(str(msg['body']))
+            if msgbody.startswith("/me "): # Checking if it's an action statement
+                resultmsg = "_" + msg['mucnick'] + " " + re.sub('^/me ', '', msgbody) + "_"
+            else:
+                resultmsg = msg['mucnick'] + ": " + msgbody
             for channel in channel_map.keys():
                 if channel_map[channel] == room:
-                    disclient.loop.create_task(disclient.send_message(disclient.get_channel(channel), msg['mucnick'] + ": " + resultmsg)) # The thing I'm probably going to hell for
+                    self.send_discord_message(disclient.get_channel(channel), resultmsg)
+    
+    def send_discord_message(self, channel, msg):
+        disclient.loop.create_task(disclient.send_message(channel, msg))  # The thing I'm probably going to hell for
+    
+
 
 class XConnection(sleekxmpp.ClientXMPP):
     
@@ -118,7 +129,6 @@ disclient = discord.Client()
 async def on_message(message):
     if message.author == disclient.user:
         return
-    
     if message.channel.id in channel_map.keys():
         if message.content.startswith("<@%s>" % disclient.user.id):
             output = handle_disc_commands(re.sub(r"<@(.*?)> ", "" , message.content))
@@ -172,6 +182,9 @@ def handle_discord_msg(messagetext):
     # Making Discord ping strings readable
     resulttext = re.sub(r"<@(.*?)>", lambda m: "@" + memberids[m.group()[2:-1]] , resulttext) # Oh, my god, what the fuck.
     resulttext = re.sub(r"@(everyone)", unwrap_everyone_dict(bot.plugin["xep_0045"].getRoster(list(channel_map.values())[0])), resulttext)
+    # Handling action statements
+    if messagetext.startswith("_") and messagetext.endswith("_"):
+        resulttext = "/me " + resulttext.strip("_")
     return resulttext
     
 def handle_disc_commands(command):
