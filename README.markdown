@@ -11,6 +11,7 @@ Dissonɐnce is a conference transport bot between XMPP (or, Jabber) multi-user c
  - translation of mentions (a.k.a pings) from Discord format to XMPP conference
  - mentioning @everyone on Discord pings all non-Dissonɐnce-managed XMPP conference members
  - translation of links to attached files and custom emoticons from Discord to XMPP conference
+ - action statements (/me command)
  - some limited command functionality
 
 ## Requirements:
