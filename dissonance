@@ -23,8 +23,6 @@ import asyncio
 import re
 import time
 
-from pprint import pprint
-
 ###############################################################
 #XMPP ZONE: handling XMPP connections, messages and commands
 ###############################################################
